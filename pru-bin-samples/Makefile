@@ -3,7 +3,11 @@
 AM335_BASE:=../am335x_pru_package
 PASM=$(AM335_BASE)/pru_sw/utils/pasm
 
-PRU_BIN=pru-sum_bin.h
+# Comme the line below to compile on ARM
+export ARM_COMPILE_FLAGS?=
+
+ASSEMBLY_SOURCES=$(wildcard *.p)
+PRU_BIN=$(ASSEMBLY_SOURCES:.p=_bin.h)
 
 all: $(PRU_BIN)
 
@@ -14,5 +18,6 @@ $(PASM):
 	make -C $(AM335_BASE)
 
 clean:
-	rm -f $(PASM) $(PRU_BIN)
-	make -C $(AM335_BASE)/pru_sw/app_loader/interface clean
+	rm -f $(PRU_BIN)
+	# rm -f $(PASM)
+	# make -C $(AM335_BASE)/pru_sw/app_loader/interface clean

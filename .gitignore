@@ -1,8 +1,8 @@
 # Prerequisites
 *.d
 
-pru-virtual-machine
-
+vm
+*_test
 # Compiled Object files
 *.slo
 *.lo

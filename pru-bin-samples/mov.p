@@ -4,4 +4,4 @@
 .entrypoint INIT
 
 INIT:
-  MOV r1, 0xffffffff
+  MOV r1, 0x1234abcd
