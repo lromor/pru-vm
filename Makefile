@@ -11,7 +11,7 @@ OBJECTS=pru-virtual-machine.o pru-virtual-instructions.o
 MAIN_OBJECTS=vm.o
 TEST_FRAMEWORK_OBJECTS=gtest-all.o gmock-all.o
 BINARIES=vm virtual-prussdrv.a
-UNITTEST_BINARIES=pru-virtual-machine_test
+UNITTEST_BINARIES=pru-virtual-machine_test pru-virtual-instructions_test
 
 CFLAGS+=-Wall -Werror -I$(INCDIR_APP_LOADER)
 
@@ -19,7 +19,7 @@ DEPENDENCY_RULES=$(OBJECTS:=.d) $(MAIN_OBJECTS:=.d) $(UNITTEST_BINARIES:=.o.d)
 
 all: vm pru-binaries
 
-test: $(UNITTEST_BINARIES) pru-binaries
+test: $(UNITTEST_BINARIES)
 	for test_bin in $(UNITTEST_BINARIES) ; do echo ; echo $$test_bin; ./$$test_bin || exit 1 ; done
 
 virtual-prussdrv.a: virtual-prussdrv.o pru-virtual-machine.o

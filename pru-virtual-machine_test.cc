@@ -26,7 +26,7 @@ TEST(OpCodes, mov_imm) {
 
   vm.Next();
   ASSERT_EQ(0x1234abcd, vm.ReadRegister(0));
-  ASSERT_EQ(0x0034ab00, vm.ReadRegister(1));
+  ASSERT_EQ(0x000034ab, vm.ReadRegister(1));
 
   ASSERT_EQ(vm.IsRunning(), false);
 }
