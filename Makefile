@@ -1,13 +1,13 @@
 
 CPPC=g++
-CFLAGS=-g -O0
+CFLAGS=-g -O0 -D_DEBUG
 
 INCDIR_APP_LOADER?=am335x_pru_package/pru_sw/app_loader/include
 
 GTEST_SOURCE?=/usr/src/gtest
 GMOCK_SOURCE?=/usr/src/gmock
 
-OBJECTS=pru-virtual-machine.o virtual-prussdrv.o
+OBJECTS=pru-virtual-machine.o pru-virtual-instructions.o
 MAIN_OBJECTS=vm.o
 TEST_FRAMEWORK_OBJECTS=gtest-all.o gmock-all.o
 BINARIES=vm virtual-prussdrv.a
@@ -17,16 +17,16 @@ CFLAGS+=-Wall -Werror -I$(INCDIR_APP_LOADER)
 
 DEPENDENCY_RULES=$(OBJECTS:=.d) $(MAIN_OBJECTS:=.d) $(UNITTEST_BINARIES:=.o.d)
 
-all: $(BINARIES)
+all: vm pru-binaries
 
-test: $(UNITTEST_BINARIES)
+test: $(UNITTEST_BINARIES) pru-binaries
 	for test_bin in $(UNITTEST_BINARIES) ; do echo ; echo $$test_bin; ./$$test_bin || exit 1 ; done
 
 virtual-prussdrv.a: virtual-prussdrv.o pru-virtual-machine.o
 	ar rvs $@ $^
 
-vm: vm.cc pru-binaries
-	$(CPPC) $(CFLAGS) -o $@ $<
+vm: vm.cc $(OBJECTS)
+	$(CPPC) $(CFLAGS) -o $@ $< $(OBJECTS)
 
 %_test: %_test.o $(OBJECTS) $(TEST_FRAMEWORK_OBJECTS)
 	$(CPPC) -lpthread -o $@ $< $(OBJECTS) $(TEST_FRAMEWORK_OBJECTS)

@@ -11,13 +11,13 @@ PRU_BIN=$(ASSEMBLY_SOURCES:.p=_bin.h)
 
 all: $(PRU_BIN)
 
-%_bin.h : %.p $(PASM)
-	$(PASM) -I$(CAPE_INCLUDE) -V3 -c $<
+%_bin.h: %.p $(PASM)
+	$(PASM) -b -L -I$(CAPE_INCLUDE) -V3 -c $<
 
 $(PASM):
 	make -C $(AM335_BASE)
 
 clean:
-	rm -f $(PRU_BIN)
+	rm -f $(PRU_BIN) *.txt
 	# rm -f $(PASM)
 	# make -C $(AM335_BASE)/pru_sw/app_loader/interface clean
