@@ -25,7 +25,7 @@ public:
 
 private:
 
-  int ExecuteInstruction(uint32_t instruction);
+  int ExecuteInstruction(uint32_t instr);
 
   // Pru is 32-bit
   uint32_t *iram_;

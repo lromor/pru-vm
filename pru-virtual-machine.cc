@@ -8,22 +8,51 @@
 #include "pru-virtual-machine.h"
 #include "pru-virtual-instructions.h"
 
-union PruInstr {
-  uint32_t value;
-  struct {
-    unsigned b0 : 8;
-    unsigned b1 : 8;
-    unsigned b2 : 8;
-    unsigned b3 : 8;
-  } bytes;
+void GetBurstLen(char *tempstr, unsigned int BurstLen)
+{
+  if (BurstLen < 124) {
+    sprintf(tempstr, "%u", BurstLen+1);
+  } else if (BurstLen == 124) {
+     sprintf(tempstr, "b0");
+  } else if (BurstLen == 125) {
+    sprintf(tempstr, "b1");
+  } else if (BurstLen == 126) {
+    sprintf(tempstr, "b2");
+  } else if (BurstLen == 127) {
+    sprintf(tempstr, "b3");
+  } else {
+    sprintf(tempstr, "XX");
+  }
+}
+
+static const char *f1_inst[] = {
+  "ADD", "ADC", "SUB", "SUC", "LSL", "LSR", "RSB", "RSC", "AND", "OR", "XOR",
+  "NOT", "MIN", "MAX", "CLR", "SET"
 };
 
-#ifdef _DEBUG
-static void instr_pretty_printer(const char* op, const union PruInstr instr) {
-  fprintf(stdout, "{ %s 0x%x\t0x%x\t0x%x\t0x%x }\n", op, instr.bytes.b3,
-          instr.bytes.b2, instr.bytes.b1, instr.bytes.b0);
-}
-#endif
+static const char *f2_inst[] = {
+  "JMP", "JAL", "LDI", "LMBD", "SCAN", "HALT", "RESERVED", "RESERVED",
+  "RESERVED", "RESERVED", "RESERVED", "RESERVED", "RESERVED", "RESERVED",
+  "RESERVED", "SLP"
+};
+
+static const char *f4_inst[] = {
+  "xx", "LT", "EQ", "LE", "GT", "NE", "GE", "A"
+};
+
+static const char  *f5_inst[] = {
+  "xx", "BC", "BS", "xx"
+};
+
+static const char  *f6_7_inst[] = { "SBBO", "LBBO" };
+
+static const char  *f6_4_inst[] = { "SBCO", "LBCO" };
+
+static const char  *sis[] = {
+  ".b0", ".b1", ".b2", ".b3", ".w0", ".w1", ".w2", ""
+};
+
+static const char*  bytenum[] = {"", ".b1", ".b2", ".b3"};
 
 PruVirtualMachine::PruVirtualMachine() : iram_(NULL), registers_{0},
                                          is_running_(false), ip_(0) {}
@@ -63,80 +92,199 @@ uint32_t PruVirtualMachine::ReadRegister(int reg) {
   return registers_[reg];
 }
 
-int PruVirtualMachine::ExecuteInstruction(uint32_t instruction) {
-  union PruInstr instr;
-  instr.value = instruction;
+union PruInstr {
+  uint32_t value;
+  struct {
+    unsigned b0 : 8;
+    unsigned b1 : 8;
+    unsigned b2 : 8;
+    unsigned b3 : 8;
+  } bytes;
+};
 
-  char op_text[10];
-  const unsigned op = instr.bytes.b3;
+int PruVirtualMachine::ExecuteInstruction(uint32_t instr) {
+
+  unsigned char op;
+  unsigned short imm;
+  unsigned char imm2;
+  unsigned char aluop, rs2_field, rs2, rs1_field, rs1, rd_field, rd, io;
+  unsigned char loadstore, burstlen, rxbyteaddr, rx, ro, ro_field, rb;
+  unsigned char subop, test;
+  short broff;
+  char tempstr[50];
+  char str[100];
+
+  op = (instr & 0xE0000000) >> 29;
 
   switch (op) {
-    case OP_MOV_CONST: {
-      // e.g: MOV r1, 0xffffffff
-      // Pick first five bits that contain the target register.
-      strcpy(op_text, "MOV");
-      uint32_t *dst = &registers_[instr.bytes.b0 & 0x1f];
-      FieldType dst_field = (FieldType) (0x7 & (instr.bytes.b0 >> 5));
-
-      uint32_t src = (0x00ffff00 & instruction);
-      FieldType src_field = FIELDTYPE_23_8;
-      pru_mov(dst, dst_field, src, src_field);
-      break;
-    }
-    case OP_AND: {
-      // Used for bitwise AND and for MOV reg, reg
-      // 0b: dst, 1b: source, 2b: source, 3b:op
-      strcpy(op_text, "AND");
-
-      uint32_t *dst = &registers_[instr.bytes.b0 & 0x1f];
-      FieldType dst_field = (FieldType) (0x7 & (instr.bytes.b0 >> 5));
-
-      uint32_t arg2 = registers_[instr.bytes.b1 & 0x1f];
-      FieldType arg2_field = (FieldType) (0x7 & (instr.bytes.b1 >> 5));
-
-      uint32_t arg1;
-      FieldType arg1_field;
-
-      if (op & 0x01) {
-        arg1 = instr.bytes.b2;
-        arg1_field = FIELDTYPE_7_0;
+    case 0: // format 1
+      aluop = (instr & 0x1E000000) >> 25;
+      io = (instr & 0x01000000) >> 24;
+      rs1_field = (instr & 0x0000E000) >> 13;
+      rs1 = (instr & 0x00001F00) >> 8;
+      rd_field = (instr & 0x000000E0) >> 5;
+      rd = (instr & 0x0000001F);
+      if (io) {
+          imm2 = (instr & 0x00FF0000) >> 16;
+          sprintf(str, "%s R%u%s, R%u%s, 0x%02x", f1_inst[aluop], rd,
+                  sis[rd_field], rs1, sis[rs1_field], imm2);
       } else {
-        arg1 = registers_[instr.bytes.b2 & 0x1f];
-        arg1_field = (FieldType) (0x7 & (instr.bytes.b2 >> 5));
+          rs2_field = (instr & 0x00E00000) >> 21;
+          rs2 = (instr & 0x001F0000) >> 16;
+          sprintf(str, "%s R%u%s, R%u%s, R%u%s", f1_inst[aluop], rd,
+                  sis[rd_field], rs1, sis[rs1_field], rs2, sis[rs2_field]);
       }
-      pru_and(dst, dst_field, arg1, arg1_field, arg2, arg2_field);
       break;
-    }
-    case OP_ADD: {
-      strcpy(op_text, "ADD");
-      uint32_t *dst = &registers_[instr.bytes.b0 & 0x1f];
-      FieldType dst_field = (FieldType) (0x7 & (instr.bytes.b0 >> 5));
+    case 1: // format 2
+      subop = (instr & 0x1E000000) >> 25;
+      switch (subop) {
+        case 0: // JMP & JAL
+        case 1:
+          io = (instr & 0x01000000) >> 24;
+          rd_field = (instr & 0x000000E0) >> 5;
+          rd = (instr & 0x0000001F);
+          if (io) {
+            imm = (instr & 0x00FFFF00) >> 8;
+            if (subop == 0)
+              sprintf(str, "%s 0x%04x", f2_inst[subop], imm);
+            else
+              sprintf(str, "%s R%u%s, 0x%04x", f2_inst[subop],
+                      rd, sis[rd_field], imm);
+          } else {
+            rs2_field = (instr & 0x00E00000) >> 21;
+            rs2 = (instr & 0x001F0000) >> 16;
+            if (subop == 0)
+              sprintf(str, "%s R%u%s", f2_inst[subop], rs2,
+                      sis[rs2_field]);
+            else
+              sprintf(str, "%s R%u%s, R%u%s", f2_inst[subop], rd,
+                      sis[rd_field], rs2, sis[rs2_field]);
+          }
+          break;
+        case 2:  // LDI
+          imm = (instr & 0x00FFFF00) >> 8;
+          rd_field = (instr & 0x000000E0) >> 5;
+          rd = (instr & 0x0000001F);
+          sprintf(str, "%s R%u%s, 0x%04x", f2_inst[subop], rd,
+                  sis[rd_field], imm);
+          break;
+        case 3:  // LMBD
+          io = (instr & 0x01000000) >> 24;
+          rs1_field = (instr & 0x0000E000) >> 13;
+          rs1 = (instr & 0x00001F00) >> 8;
+          rd_field = (instr & 0x000000E0) >> 5;
+          rd = (instr & 0x0000001F);
+          rs2_field = (instr & 0x00E00000) >> 21;
+          rs2 = (instr & 0x001F0000) >> 16;
+          imm2 = (instr & 0x00FF0000) >> 16;
 
-      uint32_t arg2 = registers_[instr.bytes.b1 & 0x1f];
-      FieldType arg2_field = (FieldType) (0x7 & (instr.bytes.b1 >> 5));
+          if (io) {
+            sprintf(str, "%s R%u%s, R%u%s, 0x%04x", f2_inst[subop], rd,
+                    sis[rd_field], rs1, sis[rs1_field], imm2);
+          } else {
+            sprintf(str, "%s R%u%s, R%u%s, R%u%s", f2_inst[subop], rd,
+                    sis[rd_field], rs1, sis[rs1_field], rs2, sis[rs2_field]);
+          }
+          break;
+        case 4:  // SCAN
+          // let's not support this for now.
+          return -1;
+        case 5:  // HALT
+          sprintf(str, "%s", f2_inst[subop]);
+          break;
+        case 15:  // SLP
+          imm = (instr & 0x00800000) >> 23;
+          sprintf(str, "%s %u", f2_inst[subop], imm);
+          break;
+        default:
+          sprintf(str, "UNKNOWN-F2");
+          break;
+        }
+        break;
+    case 2:  // Format 4a & 4b - Quick Arithmetic Test and Branch
+    case 3:
+      test = (instr & 0x38000000) >> 27;
+      io = (instr & 0x01000000) >> 24;
+      rs2_field = (instr & 0x00E00000) >> 21;
+      rs2 = (instr & 0x001F0000) >> 16;
+      rs1_field = (instr & 0x0000E000) >> 13;
+      rs1 = (instr & 0x00001F00) >> 8;
+      imm = (instr & 0x00FF0000) >> 16;
+      broff = ((instr & 0x06000000) >> 17) | (instr & 0x000000FF);
+      if (broff & 0x0200) broff |= 0xFC00;
 
-      uint32_t arg1;
-      FieldType arg1_field;
-
-      if (op & 0x01) {
-        arg1 = instr.bytes.b2;
-        arg1_field = FIELDTYPE_7_0;
+      if (test == 7) {
+        sprintf(str, "QBA %d", broff);
       } else {
-        arg1 = registers_[instr.bytes.b2 & 0x1f];
-        arg1_field = (FieldType) (0x7 & (instr.bytes.b2 >> 5));
+        if (io) {
+          sprintf(str, "QB%s %d, R%u%s, %u", f4_inst[test], broff, rs1,
+                  sis[rs1_field], imm);
+        } else {
+          sprintf(str, "QB%s %d, R%u%s, R%u%s", f4_inst[test], broff,
+                  rs1, sis[rs1_field], rs2, sis[rs2_field]);
+        }
       }
-      pru_and(dst, dst_field, arg1, arg1_field, arg2, arg2_field);
       break;
-    }
+    case 6:  // Format 5 - Quick bit test and banch instructions
+      test = (instr & 0x18000000) >> 27;
+      io = (instr & 0x01000000) >> 24;
+      rs2_field = (instr & 0x00E00000) >> 21;
+      rs2 = (instr & 0x001F0000) >> 16;
+      rs1_field = (instr & 0x0000E000) >> 13;
+      rs1 = (instr & 0x00001F00) >> 8;
+      imm = (instr & 0x001F0000) >> 16;
+      broff = ((instr & 0x06000000) >> 17) | (instr & 0x000000FF);
+      if (broff & 0x0200) broff |= 0xFC00;
+
+      if (io) {
+        sprintf(str, "QB%s %d, R%u%s, %u", f5_inst[test], broff, rs1,
+                sis[rs1_field], imm);
+      } else {
+        sprintf(str, "QB%s %d, R%u%s, R%u%s", f5_inst[test], broff, rs1,
+                sis[rs1_field], rs2, sis[rs2_field]);
+      }
+      break;
+    case 4:
+    case 7:  // Format 6 - LBBO/SBBO/LBCO/SBCO instructions
+      loadstore = (instr & 0x10000000) >> 28;
+      burstlen = ((instr & 0x0E000000) >> 21) |
+        ((instr & 0x0000E000) >> 12) |
+        ((instr & 0x00000080) >> 7);
+
+      io = (instr & 0x01000000) >> 24;
+      rxbyteaddr = (instr & 0x00000060) >> 5;
+      rx = (instr & 0x0000001F);
+      ro_field = (instr & 0x00E00000) >> 21;
+      ro = (instr & 0x001F0000) >> 16;
+      rb = (instr & 0x00001F00) >> 8;
+      imm = (instr & 0x00FF0000) >> 16;
+      GetBurstLen(tempstr, burstlen);
+
+      if (op == 7) {
+        if (io) {
+          sprintf(str, "%s R%u%s, R%u, %u, %s", f6_7_inst[loadstore],
+                  rx, bytenum[rxbyteaddr], rb, imm, tempstr);
+        } else {
+          sprintf(str, "%s R%u%s, R%u, R%u%s, %s", f6_7_inst[loadstore],
+                  rx, bytenum[rxbyteaddr], rb, ro, sis[ro_field],
+                  tempstr);
+        }
+      } else {  // OP==4
+        if (io) {
+          sprintf(str, "%s R%u%s, C%u, %u, %s", f6_4_inst[loadstore],
+                  rx, bytenum[rxbyteaddr], rb, imm, tempstr);
+        } else {
+          sprintf(str, "%s R%u%s, C%u, R%u%s, %s", f6_4_inst[loadstore],
+                  rx, bytenum[rxbyteaddr], rb, ro, sis[ro_field], tempstr);
+        }
+      }
+      break;
     default:
-      // Failed on interpreting the instruction
       return -1;
   }
 
-  #ifdef _DEBUG
-    instr_pretty_printer(op_text, instr);
-  #endif
-
+#ifdef _DEBUG
+  fprintf(stdout, "%s\n", str);
+#endif
   return 0;
-
 }
