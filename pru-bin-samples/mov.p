@@ -6,6 +6,7 @@
 INIT:
   MOV r0, 0x1234abcd
 
+  ZERO 0, 124
   LBBO &r1, r1, r2.w0, 4
   JMP r1
   MOV r1.b0, r0.w1

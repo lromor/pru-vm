@@ -8,30 +8,13 @@
 #include "pru-virtual-machine.h"
 #include "pru-virtual-instructions.h"
 
-void GetBurstLen(char *tempstr, unsigned int BurstLen)
-{
-  if (BurstLen < 124) {
-    sprintf(tempstr, "%u", BurstLen+1);
-  } else if (BurstLen == 124) {
-     sprintf(tempstr, "b0");
-  } else if (BurstLen == 125) {
-    sprintf(tempstr, "b1");
-  } else if (BurstLen == 126) {
-    sprintf(tempstr, "b2");
-  } else if (BurstLen == 127) {
-    sprintf(tempstr, "b3");
-  } else {
-    sprintf(tempstr, "XX");
-  }
-}
-
 static const char *f1_inst[] = {
   "ADD", "ADC", "SUB", "SUC", "LSL", "LSR", "RSB", "RSC", "AND", "OR", "XOR",
   "NOT", "MIN", "MAX", "CLR", "SET"
 };
 
 static const char *f2_inst[] = {
-  "JMP", "JAL", "LDI", "LMBD", "SCAN", "HALT", "RESERVED", "RESERVED",
+  "JMP", "JAL", "LDI", "LMBD", "SCAN", "HALT", "RESERVED", "ZERO",
   "RESERVED", "RESERVED", "RESERVED", "RESERVED", "RESERVED", "RESERVED",
   "RESERVED", "SLP"
 };
@@ -54,53 +37,76 @@ static const char  *sis[] = {
 
 static const char*  bytenum[] = {"", ".b1", ".b2", ".b3"};
 
-PruVirtualMachine::PruVirtualMachine() : iram_(NULL), registers_{0},
-                                         is_running_(false), ip_(0) {}
+enum AluOp {
+  ADD, ADC, SUB, SUC, LSL, LSR, RSB, RSC, AND, OR, XOR, NOT, MIN, MAX, CLR, SET
+};
 
-// This may be useful to start the execution at a certain address with some
-// specific conditions
-void PruVirtualMachine::Run() { is_running_ = true; }
+static void GetBurstLen(char *tempstr, unsigned int BurstLen)
+{
+  if (BurstLen < 124) {
+    sprintf(tempstr, "%u", BurstLen+1);
+  } else if (BurstLen == 124) {
+     sprintf(tempstr, "b0");
+  } else if (BurstLen == 125) {
+    sprintf(tempstr, "b1");
+  } else if (BurstLen == 126) {
+    sprintf(tempstr, "b2");
+  } else if (BurstLen == 127) {
+    sprintf(tempstr, "b3");
+  } else {
+    sprintf(tempstr, "XX");
+  }
+}
+
+PruVirtualMachine::PruVirtualMachine() : iram_(NULL), registers_{0},
+                                         is_running_(false), ip_(0),
+                                         cycles_(0) {}
+
+// Start the execution at a certain address with some
+void PruVirtualMachine::Run(int start) {
+  assert(iram_ != NULL);
+  assert(start < isize_);
+
+  ip_ = start;
+  cycles_ = 0;
+  is_running_ = true;
+ }
 
 void PruVirtualMachine::Next() {
-  assert(iram_ != NULL);
+  assert(is_running_);
 
   // Pick n instructions associated with a single opcode
-  const uint32_t instr =  ((uint32_t *) iram_)[ip_];
+  const uint32_t instr = ((uint32_t *) iram_)[ip_];
 
-  // Map it back to PRU_INST
-  // PRU_INST instruction;
-  ExecuteInstruction(instr);
+  if (ExecuteInstruction(instr) < 0) {
+    fprintf(stderr, "Error with the instruction n: 0x%x \n", instr);
+    is_running_ = false;
+    return;
+  }
+
+  // Increase number of cycles
+  cycles_++;
 
   // Increase the ip
   ip_++;
 
   if (ip_ >= isize_) is_running_ = false;
-
 }
-
 
 void PruVirtualMachine::Load(const void *instructions, int size) {
   iram_ = (uint32_t *) instructions;
   isize_ = size / sizeof(uint32_t);
 }
 
-bool PruVirtualMachine::IsRunning() {
-  return is_running_;
+bool PruVirtualMachine::IsRunning() { return is_running_; }
+
+uint32_t PruVirtualMachine::ReadRegister(int reg) { return registers_[reg]; }
+
+void PruVirtualMachine::WriteRegister(int reg, uint32_t value) {
+  registers_[reg] = value;
 }
 
-uint32_t PruVirtualMachine::ReadRegister(int reg) {
-  return registers_[reg];
-}
-
-union PruInstr {
-  uint32_t value;
-  struct {
-    unsigned b0 : 8;
-    unsigned b1 : 8;
-    unsigned b2 : 8;
-    unsigned b3 : 8;
-  } bytes;
-};
+long PruVirtualMachine::GetCycles() { return cycles_; }
 
 int PruVirtualMachine::ExecuteInstruction(uint32_t instr) {
 
@@ -114,6 +120,9 @@ int PruVirtualMachine::ExecuteInstruction(uint32_t instr) {
   char tempstr[50];
   char str[100];
 
+
+  uint32_t rd_value, rs1_value, rs2_value;
+
   op = (instr & 0xE0000000) >> 29;
 
   switch (op) {
@@ -122,18 +131,38 @@ int PruVirtualMachine::ExecuteInstruction(uint32_t instr) {
       io = (instr & 0x01000000) >> 24;
       rs1_field = (instr & 0x0000E000) >> 13;
       rs1 = (instr & 0x00001F00) >> 8;
+      rs1_value = registers_[rs1];
+
       rd_field = (instr & 0x000000E0) >> 5;
       rd = (instr & 0x0000001F);
+      rd_value = registers_[rd];
+
       if (io) {
-          imm2 = (instr & 0x00FF0000) >> 16;
-          sprintf(str, "%s R%u%s, R%u%s, 0x%02x", f1_inst[aluop], rd,
-                  sis[rd_field], rs1, sis[rs1_field], imm2);
+        imm2 = (instr & 0x00FF0000) >> 16;
+        sprintf(str, "%s R%u%s, R%u%s, 0x%02x", f1_inst[aluop], rd,
+                sis[rd_field], rs1, sis[rs1_field], imm2);
+        rs2_value = imm2;
+        rs2_field = FIELDTYPE_7_0; // like an 8 bit value field
       } else {
-          rs2_field = (instr & 0x00E00000) >> 21;
-          rs2 = (instr & 0x001F0000) >> 16;
-          sprintf(str, "%s R%u%s, R%u%s, R%u%s", f1_inst[aluop], rd,
-                  sis[rd_field], rs1, sis[rs1_field], rs2, sis[rs2_field]);
+        rs2_field = (instr & 0x00E00000) >> 21;
+        rs2 = (instr & 0x001F0000) >> 16;
+        rs2_value = registers_[rs2];
+        sprintf(str, "%s R%u%s, R%u%s, R%u%s", f1_inst[aluop], rd,
+                sis[rd_field], rs1, sis[rs1_field], rs2, sis[rs2_field]);
       }
+
+      switch (aluop) {
+        case ADD:
+          pru_add(&rd_value, rd_field, rs1_value, rs1_field,
+                  rs2_value, rs2_field);
+          break;
+        case AND:
+          pru_and(&rd_value, rd_field, rs1_value, rs1_field,
+                  rs2_value, rs2_field);
+          break;
+      }
+
+      WriteRegister(rd, rd_value);
       break;
     case 1: // format 2
       subop = (instr & 0x1E000000) >> 25;
@@ -154,19 +183,21 @@ int PruVirtualMachine::ExecuteInstruction(uint32_t instr) {
             rs2_field = (instr & 0x00E00000) >> 21;
             rs2 = (instr & 0x001F0000) >> 16;
             if (subop == 0)
-              sprintf(str, "%s R%u%s", f2_inst[subop], rs2,
-                      sis[rs2_field]);
+              sprintf(str, "%s R%u%s", f2_inst[subop], rs2, sis[rs2_field]);
             else
               sprintf(str, "%s R%u%s, R%u%s", f2_inst[subop], rd,
                       sis[rd_field], rs2, sis[rs2_field]);
           }
           break;
-        case 2:  // LDI
+        case 2:  // LDI, alias of MOV with 16 immediate value
           imm = (instr & 0x00FFFF00) >> 8;
           rd_field = (instr & 0x000000E0) >> 5;
           rd = (instr & 0x0000001F);
+          rd_value = registers_[rd];
           sprintf(str, "%s R%u%s, 0x%04x", f2_inst[subop], rd,
                   sis[rd_field], imm);
+          pru_ldi(&rd_value, rd_field, imm, FIELDTYPE_15_0);
+          WriteRegister(rd, rd_value);
           break;
         case 3:  // LMBD
           io = (instr & 0x01000000) >> 24;
@@ -192,13 +223,21 @@ int PruVirtualMachine::ExecuteInstruction(uint32_t instr) {
         case 5:  // HALT
           sprintf(str, "%s", f2_inst[subop]);
           break;
+        case 7: // ZERO
+          rd_field = (instr & 0x00000060) >> 5;
+          rd = (instr & 0x0000001F);
+          imm2 = ((instr & 0x00003d80) >> 7) + 1;
+
+          sprintf(str, "%s R%u%s, 0x%04x", f2_inst[subop], rd,
+                  sis[rd_field], imm2);
+
+          break;
         case 15:  // SLP
           imm = (instr & 0x00800000) >> 23;
           sprintf(str, "%s %u", f2_inst[subop], imm);
           break;
         default:
-          sprintf(str, "UNKNOWN-F2");
-          break;
+          return -1;
         }
         break;
     case 2:  // Format 4a & 4b - Quick Arithmetic Test and Branch
@@ -284,7 +323,7 @@ int PruVirtualMachine::ExecuteInstruction(uint32_t instr) {
   }
 
 #ifdef _DEBUG
-  fprintf(stdout, "%s\n", str);
+  fprintf(stdout, "0x%04x, %s\n", ip_, str);
 #endif
   return 0;
 }

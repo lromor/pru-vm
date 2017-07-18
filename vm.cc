@@ -44,6 +44,7 @@ int main(int argc, char *argv[]) {
 
   std::cout << "Instructions total size: " << fsize << " bytes" << std::endl;
   std::cout << "Starting the vm..." << std::endl;
+  std::cout << std::endl;
 
   PruVirtualMachine pru;
   pru.Load(instructions, fsize);

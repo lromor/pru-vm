@@ -15,7 +15,7 @@ public:
   void Next();
 
   // Turns on the PRU
-  void Run();
+  void Run(int start = 0x0);
 
   // Tells if the PRU has been started and if has new instructions to execute.
   bool IsRunning();
@@ -23,9 +23,16 @@ public:
   // Get Pru register value
   uint32_t ReadRegister(int reg);
 
+  // Set Pru register value
+  void WriteRegister(int reg, uint32_t value);
+
+  long GetCycles();
+
 private:
 
   int ExecuteInstruction(uint32_t instr);
+
+  void exe_format_1();
 
   // Pru is 32-bit
   uint32_t *iram_;
@@ -40,6 +47,9 @@ private:
 
   // Instruction pointer
   int ip_;
+
+  // Number of execution cycles from the start
+  long cycles_;
 };
 
 #endif // _PRU_VIRTUAL_MACHINE_H

@@ -12,7 +12,7 @@ TEST(OpCodes, mov) {
   uint32_t dst = 0;
   const uint32_t src = 0x1234abcd;
 
-  pru_mov(&dst, FIELDTYPE_7_0, src, FIELDTYPE_31_16);
+  pru_ldi(&dst, FIELDTYPE_7_0, src, FIELDTYPE_31_16);
   ASSERT_EQ(dst, 0x34);
 }
 
