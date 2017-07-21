@@ -29,11 +29,23 @@ TEST(OpCodes, and) {
 TEST(OpCodes, add) {
 
   uint32_t dst = 0;
-  const uint32_t src1 = 0x000f0000;
-  const uint32_t src2 = 0x00000001;
+  uint32_t src1 = 0x000f0000;
+  uint32_t src2 = 0x00000001;
+  bool carry = false;
 
-  pru_add(&dst, FIELDTYPE_31_24, src1, FIELDTYPE_31_16, src2, FIELDTYPE_15_0);
+  pru_add(&dst, FIELDTYPE_31_24, &carry, src1, FIELDTYPE_31_16, src2, FIELDTYPE_15_0);
   ASSERT_EQ(dst, 0x10000000);
+  ASSERT_EQ(carry, false);
+
+
+  // Add with carry test flag
+  src1 = 0x80000000;
+  src2 = 0x80000000;
+
+  pru_add(&dst, FIELDTYPE_31_24, &carry, src1, FIELDTYPE_31_0, src2, FIELDTYPE_31_0);
+  ASSERT_EQ(carry, true);
+  ASSERT_EQ(dst, 0x0);
+
 }
 
 int main(int argc, char *argv[]) {

@@ -120,7 +120,7 @@ int PruVirtualMachine::ExecuteInstruction(uint32_t instr) {
   char tempstr[50];
   char str[100];
 
-
+  static bool carry_bit = false;
   uint32_t rd_value, rs1_value, rs2_value;
 
   op = (instr & 0xE0000000) >> 29;
@@ -153,11 +153,15 @@ int PruVirtualMachine::ExecuteInstruction(uint32_t instr) {
 
       switch (aluop) {
         case ADD:
-          pru_add(&rd_value, rd_field, rs1_value, rs1_field,
+          pru_add(&rd_value, rd_field, &carry_bit, rs1_value, rs1_field,
                   rs2_value, rs2_field);
           break;
         case AND:
           pru_and(&rd_value, rd_field, rs1_value, rs1_field,
+                  rs2_value, rs2_field);
+          break;
+        case ADC:
+          pru_adc(&rd_value, rd_field, &carry_bit, rs1_value, rs1_field,
                   rs2_value, rs2_field);
           break;
       }

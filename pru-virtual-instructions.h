@@ -21,7 +21,10 @@ void pru_ldi(uint32_t *dst, int dst_field, uint32_t src, int src_field);
 void pru_and(uint32_t *dst, int dst_field, uint32_t arg1, int arg1_field,
              uint32_t arg2, int arg2_field);
 
-void pru_add(uint32_t *dst, int dst_field, uint32_t arg1, int arg1_field,
-             uint32_t arg2, int arg2_field);
+void pru_add(uint32_t *dst, int dst_field, bool *carry, uint32_t arg1,
+             int arg1_field, uint32_t arg2, int arg2_field);
+
+void pru_adc(uint32_t *dst, int dst_field, bool *carry, uint32_t arg1,
+             int arg1_field, uint32_t arg2, int arg2_field);
 
 #endif // _PRU_VIRTUAL_INSTRUCTIONS_H
